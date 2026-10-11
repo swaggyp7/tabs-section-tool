@@ -1,0 +1,7 @@
+name = Section Tool
+sc_name = 剖面工具
+author = Andrew
+description = Reversible section views for TABS vehicles. Q/E rotate, C selects side, left click sections, right click restores, R restores all. Single-player.
+sc_description = TABS 载具剖面工具。Q/E 旋转，C 切换侧边，左键剖切，右键恢复，R 全部恢复。单人模式。
+tags = Tool, Gameplay
+preview = preview.jpg
