@@ -1,5 +1,6 @@
 #include "clip.lua"
 #include "vehicle.lua"
+#include "collision.lua"
 
 -- Legacy single-player callbacks are intentional (same as built-in jetpack).
 local TOOL = "reversible_section_tool"
@@ -50,10 +51,11 @@ end
 
 local function restoreAll()
     cancelJob()
+    SectionCollision.restore()
     local list = {}
     for shape in pairs(records) do list[#list + 1] = shape end
     for _, shape in ipairs(list) do restore(shape) end
-    tell("All sections restored")
+    tell("All sections and collisions restored")
 end
 
 local function rejectHelpers()
@@ -69,7 +71,9 @@ local function getAim()
     local camera = GetCameraTransform()
     local forward = TransformToParentVec(camera, Vec(0, 0, -1))
     rejectHelpers()
-    local hit, distance, _, shape = QueryRaycast(camera.pos, forward, 100, 0, false)
+    local hit, distance, _, shape = SectionCollision.query(function()
+        return QueryRaycast(camera.pos, forward, 100, 0, false)
+    end)
     if hit and (shape ~= targetShape or targetRefresh <= 0) then
         local record = records[shape]
         targetVehicle = record and record.vehicle or SectionVehicle.resolve(shape)
@@ -102,7 +106,7 @@ end
 local function enqueue(a)
     if active or #queue > 0 then tell("Processing... R cancels and restores"); return end
     if not a.hit then tell("Aim at a TABS vehicle"); return end
-    local candidates, vehicle = SectionVehicle.collect(a.shape)
+    local candidates, vehicle = SectionCollision.query(function() return SectionVehicle.collect(a.shape) end)
     a.vehicle = vehicle or 0
     if not candidates then tell("TABS vehicles only"); return end
     table.sort(candidates, function(x, y)
@@ -123,7 +127,7 @@ local function enqueue(a)
                 elseif (coverage == "full" or x*y*z <= MAX_VOXELS) and x*y*z > 0 then
                     queue[#queue + 1] = {shape = shape, x = x, y = y, z = z,
                         scale = scale, planes = planes, row = 0, vehicle = a.vehicle,
-                        full = coverage == "full"}
+                        full = coverage == "full", vehicleShapes = candidates}
                 else batchSkipped = batchSkipped + 1 end
             end
         end
@@ -208,10 +212,12 @@ local function processQueue()
         records[job.shape] = {body = job.body, proxy = job.proxy,
             fullyHidden = fullyHidden, hadNoShadow = hadNoShadow,
             count = job.voxelCount, originalBody = job.bodyAtStart, vehicle = job.vehicle}
+        local passThrough, collisionMessage = SectionCollision.enable(job.vehicle, job.vehicleShapes)
         active, batchDone = nil, batchDone + 1
         if #queue == 0 then
             tell("Section complete: " .. batchDone .. "; skipped: " .. batchSkipped)
         end
+        if not passThrough then tell(collisionMessage) end
     end
 end
 
@@ -228,9 +234,17 @@ local function maintainProxies()
         end
     end
     for _, shape in ipairs(stale) do restore(shape) end
+    local remaining = {}
+    for _,r in pairs(records) do remaining[r.vehicle]=true end
+    local finished = {}
+    for v in pairs(SectionCollision.vehicles) do
+        if not remaining[v] then finished[#finished+1]=v end
+    end
+    for _,v in ipairs(finished) do SectionCollision.restore(v) end
 end
 
 function init()
+    SectionCollision.init()
     RegisterTool(TOOL, "Section Tool", "MOD/tool.xml", 6)
     SetBool("game.tool." .. TOOL .. ".enabled", true)
 end
@@ -239,6 +253,8 @@ function tick(dt)
     targetRefresh = targetRefresh - dt
     messageTime = math.max(0, messageTime - dt)
     maintainProxies()
+    local collisionOk, collisionMessage = SectionCollision.tick()
+    if collisionOk == false then tell(collisionMessage) end
     if equipped() and not GetBool("game.player.canusetool") then
         aim = nil
     elseif equipped() then
@@ -256,10 +272,11 @@ function tick(dt)
             local vehicle = record and record.vehicle or 0
             if aim.hit and vehicle == 0 then vehicle = SectionVehicle.resolve(aim.shape) end
             if vehicle ~= 0 then
+                SectionCollision.restore(vehicle)
                 local list = {}
                 for s,r in pairs(records) do if r.vehicle == vehicle then list[#list+1]=s end end
                 for _,s in ipairs(list) do restore(s) end
-                tell("Vehicle restored: " .. #list .. " shapes")
+                tell("Vehicle sections and collisions restored")
             else tell("Aim at a TABS vehicle to restore") end
         elseif InputPressed("usetool") then enqueue(aim) end
         SetToolTransform(Transform(Vec(0.3, -0.3, -0.6)))
@@ -297,7 +314,8 @@ function draw()
             aim and aim.hit and aim.vehicle ~= 0 and "TABS VEHICLE" or "AIM AT TABS VEHICLE",
             side == 1 and "RIGHT" or "LEFT", angle),
         "LMB: section vehicle   RMB: restore vehicle   R: restore all / cancel",
-        "Q/E: rotate   C: side"
+        "Q/E: rotate   C: side   Player pass-through: " ..
+            (aim and SectionCollision.vehicles[aim.vehicle] and "ON" or "OFF")
     }
     if active or #queue > 0 then
         lines[#lines+1] = "Processing: " .. (#queue + (active and 1 or 0)) .. " shapes remaining"

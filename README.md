@@ -13,8 +13,8 @@ Reversible section views for [TABS] vehicles in Teardown — cut a vehicle open 
 | Q / E | Rotate section plane |
 | C | Switch side |
 | LMB | Section here |
-| RMB | Restore this section |
-| R | Restore all |
+| RMB | Restore the targeted vehicle and player collision |
+| R | Restore all sections and player collision |
 
 Single-player.
 
@@ -32,3 +32,27 @@ By Andrew. Built for inspecting TABS vehicles (armor layouts, crew seats, module
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## v0.2.0: automatic player pass-through
+
+Applying a section automatically lets the player pass through the entire targeted vehicle. There is no separate toggle or N key. Restoring a vehicle restores its player collision as well.
+
+The implementation remaps collision layers and translates shape masks to preserve shape-to-shape collision relationships, including terrain support and vehicle components. It does not freeze vehicles, disable gravity, or make them intangible to every object.
+
+### Compatibility and limitations
+
+- Single-player only; TABS vehicles and recognized independent track segments.
+- The engine has eight collision-layer bits. If insufficient free bits remain, the tool keeps the section view, restores normal collision, and shows a warning instead of disabling physical collision.
+- Other mods using hard-coded layer masks for ray queries may require adaptation. Large-scene performance and actual player traversal still need in-game verification.
+- TABS ballistic code can ignore invisible shapes, so section views may affect armor/penetration behavior.
+- Newly spawned vehicle parts without inherited metadata may need a restore and another section operation.
+- Move outside the vehicle before restoring collision. Reload the level when updating from an earlier version.
+
+### Manual download
+
+Download `Section-Tool-v0.2.0.zip` from Releases and extract its `section-tool` folder into `Documents/Teardown/mods/`. Enable Section Tool in the game. Use either the Workshop copy or the local copy to avoid running both simultaneously.
+
+### Tests
+
+Install `requirements-test.txt`, then run `python tests/test_section.py`.
+The suite uses Lua 5.1 through Lupa: 1,096 clipping cases plus mocked vehicle handling and collision tests. Tests verify automatic activation, all shape-pair collision relationships, independent restoration of multiple vehicles, original player masks, inherited fragments, layer exhaustion, and removal of the N toggle. Mock tests do not substitute for in-game testing.
